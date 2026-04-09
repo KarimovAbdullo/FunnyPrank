@@ -1,36 +1,48 @@
 {
   "expo": {
-    "name": "runningSpeed",
-    "slug": "runningSpeed",
+    "name": "Funny Prank App",
+    "slug": "funnyprankapp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "runningspeed",
+    "icon": "./src/assets/images/logo/playstore.png",
+    "scheme": "funnyprankapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.funnyprankapp.app"
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./src/assets/images/logo/playstore.png",
+        "backgroundImage": "./src/assets/images/logo/playstore.png",
+        "monochromeImage": "./src/assets/images/logo/playstore.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.funnyprankapp.app",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./src/assets/images/logo/playstore.png"
     },
     "plugins": [
       "expo-router",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Funny Prank App uses your location."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./src/assets/images/logo/playstore.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
@@ -43,6 +55,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0a452f78-f348-4d37-af57-145344f4459d"
+      }
+    },
+    "owner": "karimova008"
   }
 }
