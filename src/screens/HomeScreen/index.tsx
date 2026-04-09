@@ -5,7 +5,7 @@
 import * as Application from "expo-application";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Image,
   Platform,
@@ -20,6 +20,11 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+import {
+  AdEventType,
+  InterstitialAd,
+  TestIds,
+} from "react-native-google-mobile-ads";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AnimalsIcon, NeonButton } from "@/components";
@@ -39,6 +44,10 @@ const SOUND_SUBCATEGORIES = [
 ] as const;
 
 const SUBLIST_HEIGHT = 170;
+const PROD_INTERSTITIAL_AD_UNIT_ID = "ca-app-pub-4216862763820451/1947089838";
+const INTERSTITIAL_AD_UNIT_ID = __DEV__
+  ? TestIds.INTERSTITIAL
+  : PROD_INTERSTITIAL_AD_UNIT_ID;
 
 if (
   Platform.OS === "android" &&
@@ -47,8 +56,11 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-function SoundPrankExpandable() {
-  const router = useRouter();
+function SoundPrankExpandable({
+  onSelectCategory,
+}: {
+  onSelectCategory: (category: "fart" | "ghost" | "animals") => void;
+}) {
   const expandedRef = useRef(false);
   const heightVal = useSharedValue(0);
 
@@ -89,10 +101,7 @@ function SoundPrankExpandable() {
                   sub.id === "ghost" ||
                   sub.id === "animals"
                 ) {
-                  router.push({
-                    pathname: "/soundPrank",
-                    params: { category: sub.id },
-                  });
+                  onSelectCategory(sub.id);
                 }
               }}
             >
@@ -125,9 +134,83 @@ function SoundPrankExpandable() {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const interstitialRef = useRef(
+    InterstitialAd.createForAdRequest(INTERSTITIAL_AD_UNIT_ID),
+  );
+  const pendingNavigationRef = useRef<null | (() => void)>(null);
+  const openAttemptRef = useRef(0);
   const [appVersion] = useState(
     () => Application.nativeApplicationVersion ?? "1.0.0",
   );
+  const [isInterstitialLoaded, setIsInterstitialLoaded] = useState(false);
+
+  useEffect(() => {
+    const interstitial = interstitialRef.current;
+
+    const unsubscribeLoaded = interstitial.addAdEventListener(
+      AdEventType.LOADED,
+      () => setIsInterstitialLoaded(true),
+    );
+
+    const unsubscribeClosed = interstitial.addAdEventListener(
+      AdEventType.CLOSED,
+      () => {
+        setIsInterstitialLoaded(false);
+        const next = pendingNavigationRef.current;
+        pendingNavigationRef.current = null;
+        if (next) next();
+        interstitial.load();
+      },
+    );
+
+    const unsubscribeError = interstitial.addAdEventListener(
+      AdEventType.ERROR,
+      () => {
+        setIsInterstitialLoaded(false);
+        const next = pendingNavigationRef.current;
+        pendingNavigationRef.current = null;
+        if (next) next();
+      },
+    );
+
+    interstitial.load();
+
+    return () => {
+      unsubscribeLoaded();
+      unsubscribeClosed();
+      unsubscribeError();
+    };
+  }, []);
+
+  const openWithInterstitialRule = (goToScreen: () => void) => {
+    // Show ads on every other transition from Home:
+    // 1st open -> show, 2nd -> skip, 3rd -> show, ...
+    openAttemptRef.current += 1;
+    const shouldShowAd = openAttemptRef.current % 2 === 1;
+
+    if (!shouldShowAd) {
+      goToScreen();
+      return;
+    }
+
+    if (!isInterstitialLoaded) {
+      goToScreen();
+      interstitialRef.current.load();
+      return;
+    }
+
+    pendingNavigationRef.current = goToScreen;
+    interstitialRef.current.show();
+  };
+
+  const openSoundCategory = (category: "fart" | "ghost" | "animals") => {
+    openWithInterstitialRule(() =>
+      router.push({
+        pathname: "/soundPrank",
+        params: { category },
+      }),
+    );
+  };
 
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
@@ -148,16 +231,16 @@ export default function HomeScreen() {
           colors={["#006b8a", "#00a3cc", "#00f5ff"]}
           glowColor="#00f5ff"
           imageSource={require("@/assets/images/buttons/camera.webp")}
-          onPress={() => router.push("/photoPrank")}
+          onPress={() => openWithInterstitialRule(() => router.push("/photoPrank"))}
           imageStyle={{ width: 140, height: 120, right: -10, top: -40 }}
         />
-        <SoundPrankExpandable />
+        <SoundPrankExpandable onSelectCategory={openSoundCategory} />
         <NeonButton
           title="Fake Call"
           colors={["#0d5c2e", "#00a854", "#39ff14"]}
           glowColor="#39ff14"
           imageSource={require("@/assets/images/fakeCall.webp")}
-          onPress={() => router.push("/fakeCall")}
+          onPress={() => openWithInterstitialRule(() => router.push("/fakeCall"))}
           imageStyle={{ width: 90, height: 100, right: -10, top: -20 }}
         />
         <NeonButton
@@ -165,14 +248,18 @@ export default function HomeScreen() {
           colors={["#b35c00", "#e08800", "#ffab00"]}
           glowColor="#ff9100"
           imageSource={require("@/assets/images/buttons/spinner.webp")}
-          onPress={() => router.push("/spinnerChallenge")}
+          onPress={() =>
+            openWithInterstitialRule(() => router.push("/spinnerChallenge"))
+          }
         />
         <NeonButton
           title="Prank AI Chat"
           colors={["#4a148c", "#7c43bd", "#b388ff"]}
           glowColor="#b388ff"
           imageSource={require("@/assets/images/buttons/ai.webp")}
-          onPress={() => router.push("/prankAiChat")}
+          onPress={() =>
+            openWithInterstitialRule(() => router.push("/prankAiChat"))
+          }
           imageStyle={{ width: 90, height: 100, right: -10, top: -20 }}
         />
       </View>

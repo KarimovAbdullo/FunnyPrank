@@ -63,5 +63,8 @@
       }
     },
     "owner": "karimova008"
+  },
+  "react-native-google-mobile-ads": {
+    "android_app_id": "ca-app-pub-4216862763820451~9506015653"
   }
 }
