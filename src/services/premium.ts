@@ -87,17 +87,46 @@ export function useAiChatCredits(): number {
   return credits;
 }
 
-// --- Sound Prank long-timer unlock (session-only) ---
-
-let soundPrankLongTimerUnlocked = false;
-
-export function isSoundPrankLongTimerUnlocked(): boolean {
-  return soundPrankLongTimerUnlocked;
-}
-
-export function unlockSoundPrankLongTimer(): void {
-  soundPrankLongTimerUnlocked = true;
-}
+// --- Sound Prank timer unlock (session-only, per-category × per-timer) ---
 
 /** Timers strictly greater than this threshold (seconds) require an ad unlock. */
 export const SOUND_PRANK_FREE_TIMER_MAX_SEC = 5;
+
+// Keyed by `${category}:${sec}` — each (category, timer value) pair is an
+// independent entitlement. Lives only for the current JS session.
+const unlockedSoundPrankTimers = new Set<string>();
+const soundPrankUnlockListeners = new Set<() => void>();
+
+function timerUnlockKey(category: string, sec: number): string {
+  return `${category}:${sec}`;
+}
+
+export function isSoundPrankTimerUnlocked(
+  category: string,
+  sec: number,
+): boolean {
+  if (sec <= SOUND_PRANK_FREE_TIMER_MAX_SEC) return true;
+  return unlockedSoundPrankTimers.has(timerUnlockKey(category, sec));
+}
+
+export function unlockSoundPrankTimer(category: string, sec: number): void {
+  unlockedSoundPrankTimers.add(timerUnlockKey(category, sec));
+  soundPrankUnlockListeners.forEach((l) => l());
+}
+
+/**
+ * React hook that re-renders the component whenever any sound-prank timer
+ * unlock changes. Returns a version number which can be ignored — it only
+ * exists to drive the re-render.
+ */
+export function useSoundPrankTimerUnlocksVersion(): number {
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    const bump = () => setVersion((v) => v + 1);
+    soundPrankUnlockListeners.add(bump);
+    return () => {
+      soundPrankUnlockListeners.delete(bump);
+    };
+  }, []);
+  return version;
+}

@@ -22,8 +22,9 @@ import { BackIcon } from "@/components";
 import { showRewardedAd } from "@/services/ads";
 import {
   SOUND_PRANK_FREE_TIMER_MAX_SEC,
-  isSoundPrankLongTimerUnlocked,
-  unlockSoundPrankLongTimer,
+  isSoundPrankTimerUnlocked,
+  unlockSoundPrankTimer,
+  useSoundPrankTimerUnlocksVersion,
 } from "@/services/premium";
 
 const DELAY_OPTIONS = [0, 5, 10, 15, 30, 60] as const;
@@ -76,13 +77,12 @@ export default function SoundPrankScreen() {
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
     null
   );
-  const [longTimerUnlocked, setLongTimerUnlocked] = useState(
-    isSoundPrankLongTimerUnlocked()
-  );
   const [pendingLongTimerSec, setPendingLongTimerSec] = useState<number | null>(
     null
   );
   const [loadingAd, setLoadingAd] = useState(false);
+  // Re-render when any (category, sec) unlock changes.
+  useSoundPrankTimerUnlocksVersion();
 
   const sounds =
     category === "fart"
@@ -183,9 +183,7 @@ export default function SoundPrankScreen() {
   }, []);
 
   const pickDelay = (sec: number) => {
-    const isLocked =
-      sec > SOUND_PRANK_FREE_TIMER_MAX_SEC && !longTimerUnlocked;
-    if (isLocked) {
+    if (!isSoundPrankTimerUnlocked(category ?? "", sec)) {
       setPendingLongTimerSec(sec);
       return;
     }
@@ -195,23 +193,19 @@ export default function SoundPrankScreen() {
 
   const watchAdForLongTimer = useCallback(async () => {
     if (loadingAd) return;
+    const sec = pendingLongTimerSec;
+    if (sec === null) return;
+    const cat = category ?? "";
     setLoadingAd(true);
     const earned = await showRewardedAd(() => {
-      unlockSoundPrankLongTimer();
+      unlockSoundPrankTimer(cat, sec);
     });
     setLoadingAd(false);
-    if (!earned) {
-      setPendingLongTimerSec(null);
-      return;
-    }
-    setLongTimerUnlocked(true);
-    const sec = pendingLongTimerSec;
     setPendingLongTimerSec(null);
-    if (sec !== null) {
-      setSelectedDelaySec(sec);
-      setShowDelayModal(false);
-    }
-  }, [loadingAd, pendingLongTimerSec]);
+    if (!earned) return;
+    setSelectedDelaySec(sec);
+    setShowDelayModal(false);
+  }, [loadingAd, pendingLongTimerSec, category]);
 
   return (
     <View
@@ -317,8 +311,7 @@ export default function SoundPrankScreen() {
           <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>Choose countdown:</Text>
             {DELAY_OPTIONS.map((sec) => {
-              const locked =
-                sec > SOUND_PRANK_FREE_TIMER_MAX_SEC && !longTimerUnlocked;
+              const locked = !isSoundPrankTimerUnlocked(category ?? "", sec);
               return (
                 <Pressable
                   key={sec}
@@ -361,10 +354,12 @@ export default function SoundPrankScreen() {
             onPress={(e) => e.stopPropagation()}
           >
             <Ionicons name="lock-closed" size={32} color="#facc15" />
-            <Text style={styles.paywallTitle}>Unlock longer timers</Text>
+            <Text style={styles.paywallTitle}>
+              Unlock {pendingLongTimerSec ?? ""} sec timer
+            </Text>
             <Text style={styles.paywallHint}>
-              Timers over {SOUND_PRANK_FREE_TIMER_MAX_SEC} sec are locked. Watch
-              a short ad to unlock all timers for this session.
+              Watch a short ad to unlock the {pendingLongTimerSec ?? ""} sec
+              countdown for this sound category.
             </Text>
             <View style={styles.paywallActions}>
               <Pressable
