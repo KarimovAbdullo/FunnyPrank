@@ -27,6 +27,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BackIcon } from "@/components";
+import { showRewardedAd } from "@/services/ads";
+import {
+  addAiChatCredit,
+  consumeAiChatCredit,
+  useAiChatCredits,
+} from "@/services/premium";
 
 const AI_RESPONSES_FILE = "prank_ai_chat_responses.json";
 
@@ -62,6 +68,9 @@ export default function PrankAiChatScreen() {
   const listRef = useRef<FlatList>(null);
   const aiResponseIndex = useRef(0);
   const [keyboardBottomPadding, setKeyboardBottomPadding] = useState(0);
+  const credits = useAiChatCredits();
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [loadingAd, setLoadingAd] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,33 +136,64 @@ export default function PrankAiChatScreen() {
     };
   }, []);
 
-  const sendMessage = useCallback(() => {
+  const deliverMessage = useCallback(
+    (text: string) => {
+      setInputText("");
+      const userMsg: Message = { id: nextId(), type: "user", text };
+      setMessages((prev) => [...prev, userMsg]);
+
+      const loadingId = nextId();
+      setMessages((prev) => [
+        ...prev,
+        { id: loadingId, type: "loading", text: "..." },
+      ]);
+
+      const responses = aiResponses.length > 0 ? aiResponses : ["..."];
+      const reply = responses[aiResponseIndex.current % responses.length];
+      aiResponseIndex.current += 1;
+
+      const delay = 2000 + Math.random() * 1000;
+      setTimeout(() => {
+        setMessages((prev) =>
+          prev
+            .filter((m) => m.id !== loadingId)
+            .concat([
+              { id: nextId(), type: "ai", text: reply, typingLength: 0 },
+            ]),
+        );
+      }, delay);
+    },
+    [aiResponses],
+  );
+
+  const sendMessage = useCallback(async () => {
     const text = inputText.trim();
     if (!text) return;
 
-    setInputText("");
-    const userMsg: Message = { id: nextId(), type: "user", text };
-    setMessages((prev) => [...prev, userMsg]);
+    const consumed = await consumeAiChatCredit();
+    if (!consumed) {
+      setShowPaywall(true);
+      return;
+    }
+    deliverMessage(text);
+  }, [inputText, deliverMessage]);
 
-    const loadingId = nextId();
-    setMessages((prev) => [
-      ...prev,
-      { id: loadingId, type: "loading", text: "..." },
-    ]);
+  const watchAdForCredit = useCallback(async () => {
+    if (loadingAd) return;
+    setLoadingAd(true);
+    const earned = await showRewardedAd(() => {
+      addAiChatCredit();
+    });
+    setLoadingAd(false);
+    setShowPaywall(false);
+    if (!earned) return;
 
-    const responses = aiResponses.length > 0 ? aiResponses : ["..."];
-    const reply = responses[aiResponseIndex.current % responses.length];
-    aiResponseIndex.current += 1;
-
-    const delay = 2000 + Math.random() * 1000;
-    setTimeout(() => {
-      setMessages((prev) =>
-        prev
-          .filter((m) => m.id !== loadingId)
-          .concat([{ id: nextId(), type: "ai", text: reply, typingLength: 0 }]),
-      );
-    }, delay);
-  }, [inputText, aiResponses]);
+    // Auto-send the already-typed message using the freshly granted credit.
+    const text = inputText.trim();
+    if (!text) return;
+    const consumed = await consumeAiChatCredit();
+    if (consumed) deliverMessage(text);
+  }, [loadingAd, inputText, deliverMessage]);
 
   const openEdit = useCallback(() => {
     setEditResponses([...aiResponses]);
@@ -251,6 +291,11 @@ export default function PrankAiChatScreen() {
           </Pressable>
         </View>
 
+        <View style={styles.creditBar}>
+          <Ionicons name="flash" size={14} color="#facc15" />
+          <Text style={styles.creditText}>{credits} left</Text>
+        </View>
+
         <FlatList
           ref={listRef}
           data={messages}
@@ -291,6 +336,47 @@ export default function PrankAiChatScreen() {
           </Pressable>
         </View>
       </View>
+
+      <Modal
+        visible={showPaywall}
+        transparent
+        animationType="fade"
+        onRequestClose={() => (loadingAd ? null : setShowPaywall(false))}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => (loadingAd ? null : setShowPaywall(false))}
+        >
+          <Pressable
+            style={styles.paywallCard}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Ionicons name="flash" size={36} color="#facc15" />
+            <Text style={styles.paywallTitle}>You ran out of replies</Text>
+            <Text style={styles.paywallHint}>
+              Watch a short ad to unlock one more message.
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                style={styles.cancelBtn}
+                onPress={() => setShowPaywall(false)}
+                disabled={loadingAd}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.doneBtn, loadingAd && styles.sendBtnDisabled]}
+                onPress={watchAdForCredit}
+                disabled={loadingAd}
+              >
+                <Text style={styles.doneBtnText}>
+                  {loadingAd ? "Loading ad…" : "Watch ad"}
+                </Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal visible={showEditModal} transparent animationType="fade">
         <Pressable
@@ -517,4 +603,44 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   doneBtnText: { fontSize: 16, color: "#fff", fontWeight: "700" },
+  creditBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(250,204,21,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(250,204,21,0.4)",
+  },
+  creditText: {
+    fontSize: 12,
+    color: "#facc15",
+    fontWeight: "700",
+  },
+  paywallCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#1e293b",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+  },
+  paywallTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#fff",
+    marginTop: 12,
+    textAlign: "center",
+  },
+  paywallHint: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.75)",
+    marginTop: 8,
+    marginBottom: 20,
+    textAlign: "center",
+  },
 });

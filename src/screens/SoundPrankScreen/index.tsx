@@ -19,6 +19,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BackIcon } from "@/components";
+import { showRewardedAd } from "@/services/ads";
+import {
+  SOUND_PRANK_FREE_TIMER_MAX_SEC,
+  isSoundPrankLongTimerUnlocked,
+  unlockSoundPrankLongTimer,
+} from "@/services/premium";
 
 const DELAY_OPTIONS = [0, 5, 10, 15, 30, 60] as const;
 
@@ -70,6 +76,13 @@ export default function SoundPrankScreen() {
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
     null
   );
+  const [longTimerUnlocked, setLongTimerUnlocked] = useState(
+    isSoundPrankLongTimerUnlocked()
+  );
+  const [pendingLongTimerSec, setPendingLongTimerSec] = useState<number | null>(
+    null
+  );
+  const [loadingAd, setLoadingAd] = useState(false);
 
   const sounds =
     category === "fart"
@@ -170,9 +183,35 @@ export default function SoundPrankScreen() {
   }, []);
 
   const pickDelay = (sec: number) => {
+    const isLocked =
+      sec > SOUND_PRANK_FREE_TIMER_MAX_SEC && !longTimerUnlocked;
+    if (isLocked) {
+      setPendingLongTimerSec(sec);
+      return;
+    }
     setSelectedDelaySec(sec);
     if (sec !== 0) setShowDelayModal(false);
   };
+
+  const watchAdForLongTimer = useCallback(async () => {
+    if (loadingAd) return;
+    setLoadingAd(true);
+    const earned = await showRewardedAd(() => {
+      unlockSoundPrankLongTimer();
+    });
+    setLoadingAd(false);
+    if (!earned) {
+      setPendingLongTimerSec(null);
+      return;
+    }
+    setLongTimerUnlocked(true);
+    const sec = pendingLongTimerSec;
+    setPendingLongTimerSec(null);
+    if (sec !== null) {
+      setSelectedDelaySec(sec);
+      setShowDelayModal(false);
+    }
+  }, [loadingAd, pendingLongTimerSec]);
 
   return (
     <View
@@ -277,18 +316,77 @@ export default function SoundPrankScreen() {
         >
           <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>Choose countdown:</Text>
-            {DELAY_OPTIONS.map((sec) => (
+            {DELAY_OPTIONS.map((sec) => {
+              const locked =
+                sec > SOUND_PRANK_FREE_TIMER_MAX_SEC && !longTimerUnlocked;
+              return (
+                <Pressable
+                  key={sec}
+                  style={({ pressed }) => [
+                    styles.modalOption,
+                    pressed && styles.modalOptionPressed,
+                  ]}
+                  onPress={() => pickDelay(sec)}
+                >
+                  <Text style={styles.modalOptionText}>{sec} sec</Text>
+                  {locked && (
+                    <View style={styles.lockBadge}>
+                      <Ionicons name="lock-closed" size={14} color="#facc15" />
+                      <Text style={styles.lockBadgeText}>Ad</Text>
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={pendingLongTimerSec !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!loadingAd) setPendingLongTimerSec(null);
+        }}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => {
+            if (!loadingAd) setPendingLongTimerSec(null);
+          }}
+        >
+          <Pressable
+            style={styles.paywallCard}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Ionicons name="lock-closed" size={32} color="#facc15" />
+            <Text style={styles.paywallTitle}>Unlock longer timers</Text>
+            <Text style={styles.paywallHint}>
+              Timers over {SOUND_PRANK_FREE_TIMER_MAX_SEC} sec are locked. Watch
+              a short ad to unlock all timers for this session.
+            </Text>
+            <View style={styles.paywallActions}>
               <Pressable
-                key={sec}
-                style={({ pressed }) => [
-                  styles.modalOption,
-                  pressed && styles.modalOptionPressed,
-                ]}
-                onPress={() => pickDelay(sec)}
+                style={styles.paywallCancelBtn}
+                onPress={() => setPendingLongTimerSec(null)}
+                disabled={loadingAd}
               >
-                <Text style={styles.modalOptionText}>{sec} sec</Text>
+                <Text style={styles.paywallCancelText}>Cancel</Text>
               </Pressable>
-            ))}
+              <Pressable
+                style={[
+                  styles.paywallPrimaryBtn,
+                  loadingAd && styles.paywallPrimaryBtnDisabled,
+                ]}
+                onPress={watchAdForLongTimer}
+                disabled={loadingAd}
+              >
+                <Text style={styles.paywallPrimaryText}>
+                  {loadingAd ? "Loading ad…" : "Watch ad"}
+                </Text>
+              </Pressable>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -402,6 +500,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   modalOption: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 14,
     paddingHorizontal: 16,
     borderRadius: 10,
@@ -415,5 +515,76 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#fff",
     fontWeight: "600",
+    flex: 1,
+  },
+  lockBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(250,204,21,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(250,204,21,0.5)",
+  },
+  lockBadgeText: {
+    fontSize: 11,
+    color: "#facc15",
+    fontWeight: "700",
+  },
+  paywallCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#1e293b",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+  },
+  paywallTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#fff",
+    marginTop: 12,
+    textAlign: "center",
+  },
+  paywallHint: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.75)",
+    marginTop: 8,
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  paywallActions: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+  paywallCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+  },
+  paywallCancelText: {
+    fontSize: 16,
+    color: "#fff",
+    fontWeight: "600",
+  },
+  paywallPrimaryBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "#22c55e",
+    alignItems: "center",
+  },
+  paywallPrimaryBtnDisabled: {
+    opacity: 0.6,
+  },
+  paywallPrimaryText: {
+    fontSize: 16,
+    color: "#fff",
+    fontWeight: "700",
   },
 });

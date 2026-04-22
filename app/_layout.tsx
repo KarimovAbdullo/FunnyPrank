@@ -6,12 +6,13 @@ import * as NavigationBar from 'expo-navigation-bar';
 import NetInfo from '@react-native-community/netinfo';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, usePathname } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ImageBackground, Modal, Platform, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { initAdMob, showInterstitialIfReady } from '../src/services/ads';
 import { reportAppVersionOnce } from '../src/services/appVersionCheck';
 
 const BACKGROUND_IMAGE = require('@/assets/images/backg.png');
@@ -21,6 +22,7 @@ export default function RootLayout() {
   const pathname = usePathname();
   const isHome = pathname === '/' || pathname === '/index' || pathname === '';
   const [isOffline, setIsOffline] = useState(false);
+  const previousPathRef = useRef(pathname);
 
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -32,6 +34,22 @@ export default function RootLayout() {
   useEffect(() => {
     reportAppVersionOnce();
   }, []);
+
+  useEffect(() => {
+    initAdMob();
+  }, []);
+
+  // Show an interstitial when the user navigates from a prank screen back to Home.
+  // Rate-limited by INTERSTITIAL_MIN_INTERVAL_MS inside the ads service.
+  useEffect(() => {
+    const prev = previousPathRef.current;
+    previousPathRef.current = pathname;
+    const wasOnPrank = prev !== '/' && prev !== '/index' && prev !== '';
+    const backToHome = pathname === '/' || pathname === '/index' || pathname === '';
+    if (wasOnPrank && backToHome) {
+      showInterstitialIfReady();
+    }
+  }, [pathname]);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
