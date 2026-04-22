@@ -2,7 +2,7 @@
   "expo": {
     "name": "Funny Prank App",
     "slug": "funnyprankapp",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./src/assets/images/logo/playstore.png",
     "scheme": "funnyprankapp",
@@ -13,6 +13,7 @@
       "bundleIdentifier": "com.funnyprankapp.app"
     },
     "android": {
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./src/assets/images/logo/playstore.png",
